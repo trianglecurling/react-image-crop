@@ -2,13 +2,14 @@ import React, { PureComponent } from 'react';
 import PropTypes from 'prop-types';
 import clsx from 'clsx';
 
-function getClientPos(e) {
+function getClientPos(e: MouseTouchEvent) {
   let pageX;
   let pageY;
 
-  if (e.touches) {
+  if (e instanceof TouchEvent && e.touches) {
     [{ pageX, pageY }] = e.touches;
   } else {
+    // @ts-ignore
     ({ pageX, pageY } = e);
   }
 
@@ -18,15 +19,28 @@ function getClientPos(e) {
   };
 }
 
-function clamp(num, min, max) {
+interface Crop {
+  width: number;
+  height: number;
+  aspect?: number;
+  x: number;
+  y: number;
+  unit: '%' | 'px';
+}
+type SomeRequired<T, K extends keyof T> = Omit<T, K> & Required<Pick<T, K>>;
+type PartialCrop = SomeRequired<Partial<Crop>, 'width' | 'height' | 'aspect'>;
+
+function clamp(num: number, min: number, max: number) {
   return Math.min(Math.max(num, min), max);
 }
 
-function isCropValid(crop) {
+function isCropValid(crop: PartialCrop | undefined) {
   return crop && !isNaN(crop.width) && !isNaN(crop.height);
 }
 
-function inverseOrd(ord) {
+type Ord = 'n' | 'e' | 's' | 'w' | 'ne' | 'sw' | 'se' | 'nw';
+
+function inverseOrd(ord: Ord): Ord {
   if (ord === 'n') return 's';
   if (ord === 'ne') return 'sw';
   if (ord === 'e') return 'w';
@@ -38,13 +52,13 @@ function inverseOrd(ord) {
   return ord;
 }
 
-function makeAspectCrop(crop, imageWidth, imageHeight) {
-  if (isNaN(crop.aspect)) {
+function makeAspectCrop(crop: PartialCrop, imageWidth: number, imageHeight: number) {
+  if (Number.isNaN(crop.aspect)) {
     console.warn('`crop.aspect` should be a number in order to make an aspect crop', crop);
-    return crop;
+    return crop as Crop;
   }
 
-  const completeCrop = {
+  const completeCrop: Crop = {
     unit: 'px',
     x: 0,
     y: 0,
@@ -72,7 +86,7 @@ function makeAspectCrop(crop, imageWidth, imageHeight) {
   return completeCrop;
 }
 
-function convertToPercentCrop(crop, imageWidth, imageHeight) {
+function convertToPercentCrop(crop: Crop, imageWidth: number, imageHeight: number): Crop {
   if (crop.unit === '%') {
     return crop;
   }
@@ -84,10 +98,10 @@ function convertToPercentCrop(crop, imageWidth, imageHeight) {
     y: (crop.y / imageHeight) * 100,
     width: (crop.width / imageWidth) * 100,
     height: (crop.height / imageHeight) * 100,
-  };
+  } as Crop;
 }
 
-function convertToPixelCrop(crop, imageWidth, imageHeight) {
+function convertToPixelCrop(crop: Crop, imageWidth: number, imageHeight: number): Crop {
   if (!crop.unit) {
     return { ...crop, unit: 'px' };
   }
@@ -106,15 +120,15 @@ function convertToPixelCrop(crop, imageWidth, imageHeight) {
   };
 }
 
-function resolveCrop(pixelCrop, imageWidth, imageHeight) {
+function resolveCrop(pixelCrop: Crop, imageWidth: number, imageHeight: number) {
   if (pixelCrop.aspect && (!pixelCrop.width || !pixelCrop.height)) {
-    return makeAspectCrop(pixelCrop, imageWidth, imageHeight);
+    return makeAspectCrop(pixelCrop as PartialCrop, imageWidth, imageHeight);
   }
 
   return pixelCrop;
 }
 
-function containCrop(prevCrop, crop, imageWidth, imageHeight) {
+function containCrop(prevCrop: Crop, crop: Crop, imageWidth: number, imageHeight: number) {
   const pixelCrop = convertToPixelCrop(crop, imageWidth, imageHeight);
   const prevPixelCrop = convertToPixelCrop(prevCrop, imageWidth, imageHeight);
   const contained = { ...pixelCrop };
@@ -173,14 +187,99 @@ function containCrop(prevCrop, crop, imageWidth, imageHeight) {
 
 const DOC_MOVE_EVENT_LISTENER_OPTIONS = { capture: true, passive: false };
 
-class ReactCrop extends PureComponent {
-  window = typeof window !== 'undefined' ? window : {};
+interface ReactCropProps {
+  src: string;
+  crop?: Crop;
+  onChange: (crop: Crop, percentCrop: Crop) => void;
+  onComplete?: (crop: Crop, percentCrop: Crop) => void;
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+  keepSelection?: boolean;
+  disabled?: boolean;
+  locked?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+  imageStyle?: React.CSSProperties;
+  imageAlt?: string;
+  onImageLoaded?: (image: HTMLImageElement) => undefined | boolean;
+  onImageError?: (event: React.SyntheticEvent) => void;
+  onDragStart?: (event: MouseTouchEvent) => void;
+  onDragEnd?: (event: MouseTouchEvent) => void;
+  crossorigin?: '' | 'anonymous' | 'use-credentials';
+  renderSelectionAddon?: (state: ReactCropState) => React.ReactNode;
+  renderComponent?: React.ReactNode;
+  ruleOfThirds?: boolean;
+  circularCrop?: boolean;
+}
 
-  document = typeof document !== 'undefined' ? document : {};
+interface ReactCropState {
+  cropIsActive?: boolean;
+  newCropIsBeingDrawn?: boolean;
+}
 
-  state = {};
+interface EventData {
+  clientStartX: number;
+  clientStartY: number;
+  cropStartWidth: number;
+  cropStartHeight: number;
+  cropStartX: number;
+  cropStartY: number;
+  xInversed: boolean;
+  yInversed: boolean;
+  inversedXOrd?: boolean | Ord;
+  inversedYOrd?: boolean | Ord;
+  xCrossOver: boolean;
+  yCrossOver: boolean;
+  startXCrossOver: boolean;
+  startYCrossOver: boolean;
+  lastYCrossover?: boolean;
+  isResize: Ord | undefined | boolean;
+  ord: Ord;
+  cropOffset?: { top: number; left: number };
+  xDiff?: number;
+  yDiff?: number;
+  xDiffPc?: number;
+  yDiffPc?: number;
+}
 
-  keysDown = new Set();
+type MouseTouchEvent = MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent;
+
+class ReactCrop extends PureComponent<ReactCropProps, ReactCropState> {
+  public static nudgeStepLarge: number;
+  public static nudgeStepMedium: number;
+  public static nudgeStep: number;
+  public static xyOrds: string[];
+  public static xOrds: string[];
+  public static yOrds: string[];
+  public static defaultCrop: Crop;
+
+  private window: Window;
+  private document: Document;
+  private keysDown: Set<string>;
+  private componentRef!: HTMLElement;
+  private imageRef!: HTMLImageElement;
+  private docMoveBound?: boolean;
+  private cropSelectRef!: HTMLElement;
+  private mouseDownOnCrop?: boolean;
+  private mediaWrapperRef!: HTMLElement;
+  private dragStarted?: boolean;
+  private evData!: EventData;
+
+  constructor(props: ReactCropProps) {
+    super(props);
+
+    // @ts-ignore
+    this.window = typeof window !== 'undefined' ? window : {};
+
+    // @ts-ignore
+    this.document = typeof document !== 'undefined' ? document : {};
+
+    this.state = {};
+
+    this.keysDown = new Set();
+  }
 
   componentDidMount() {
     if (this.componentRef.addEventListener) {
@@ -194,8 +293,12 @@ class ReactCrop extends PureComponent {
     }
   }
 
-  componentDidUpdate(prevProps) {
+  componentDidUpdate(prevProps: ReactCropProps) {
     const { crop } = this.props;
+
+    if (!crop) {
+      throw new Error('Crop must be passed as a prop on subsequent renders.');
+    }
 
     if (
       this.imageRef &&
@@ -205,12 +308,12 @@ class ReactCrop extends PureComponent {
     ) {
       const { width, height } = this.imageRef;
       const newCrop = this.makeNewCrop();
-      const completedCrop = makeAspectCrop(newCrop, width, height);
+      const completedCrop = makeAspectCrop(newCrop as PartialCrop, width, height);
 
       const pixelCrop = convertToPixelCrop(completedCrop, width, height);
       const percentCrop = convertToPercentCrop(completedCrop, width, height);
       this.props.onChange(pixelCrop, percentCrop);
-      this.props.onComplete(pixelCrop, percentCrop);
+      this.props.onComplete?.(pixelCrop, percentCrop);
     }
   }
 
@@ -244,10 +347,10 @@ class ReactCrop extends PureComponent {
     this.docMoveBound = false;
   }
 
-  onCropMouseTouchDown = e => {
+  onCropMouseTouchDown = (e: MouseTouchEvent) => {
     const { crop, disabled } = this.props;
     const { width, height } = this.mediaDimensions;
-    const pixelCrop = convertToPixelCrop(crop, width, height);
+    const pixelCrop = convertToPixelCrop(crop!, width, height);
 
     if (disabled) {
       return;
@@ -260,55 +363,58 @@ class ReactCrop extends PureComponent {
 
     const clientPos = getClientPos(e);
 
-    // Focus for detecting keypress.
+    // @ts-ignore Focus for detecting keypress.
     if (this.componentRef.setActive) {
+      // @ts-ignore
       this.componentRef.setActive({ preventScroll: true }); // IE/Edge #289
     } else {
       this.componentRef.focus({ preventScroll: true }); // All other browsers
     }
 
-    const { ord } = e.target.dataset;
-    const xInversed = ord === 'nw' || ord === 'w' || ord === 'sw';
-    const yInversed = ord === 'nw' || ord === 'n' || ord === 'ne';
+    if (e.target instanceof HTMLElement) {
+      const { ord } = e.target.dataset as { ord: Ord };
+      const xInversed = ord === 'nw' || ord === 'w' || ord === 'sw';
+      const yInversed = ord === 'nw' || ord === 'n' || ord === 'ne';
 
-    let cropOffset;
+      let cropOffset: { top: number; left: number } | undefined = undefined;
 
-    if (pixelCrop.aspect) {
-      cropOffset = this.getElementOffset(this.cropSelectRef);
+      if (pixelCrop.aspect) {
+        cropOffset = this.getElementOffset(this.cropSelectRef);
+      }
+
+      this.evData = {
+        clientStartX: clientPos.x,
+        clientStartY: clientPos.y,
+        cropStartWidth: pixelCrop.width,
+        cropStartHeight: pixelCrop.height,
+        cropStartX: xInversed ? pixelCrop.x + pixelCrop.width : pixelCrop.x,
+        cropStartY: yInversed ? pixelCrop.y + pixelCrop.height : pixelCrop.y,
+        xInversed,
+        yInversed,
+        xCrossOver: xInversed,
+        yCrossOver: yInversed,
+        startXCrossOver: xInversed,
+        startYCrossOver: yInversed,
+        isResize: e.target.dataset.ord as Ord | undefined,
+        ord,
+        cropOffset,
+      };
+
+      this.mouseDownOnCrop = true;
+      this.setState({ cropIsActive: true });
     }
-
-    this.evData = {
-      clientStartX: clientPos.x,
-      clientStartY: clientPos.y,
-      cropStartWidth: pixelCrop.width,
-      cropStartHeight: pixelCrop.height,
-      cropStartX: xInversed ? pixelCrop.x + pixelCrop.width : pixelCrop.x,
-      cropStartY: yInversed ? pixelCrop.y + pixelCrop.height : pixelCrop.y,
-      xInversed,
-      yInversed,
-      xCrossOver: xInversed,
-      yCrossOver: yInversed,
-      startXCrossOver: xInversed,
-      startYCrossOver: yInversed,
-      isResize: e.target.dataset.ord,
-      ord,
-      cropOffset,
-    };
-
-    this.mouseDownOnCrop = true;
-    this.setState({ cropIsActive: true });
   };
 
-  onComponentMouseTouchDown = e => {
+  onComponentMouseTouchDown = (e: MouseTouchEvent) => {
     const { crop, disabled, locked, keepSelection, onChange } = this.props;
 
-    const componentEl = this.mediaWrapperRef.firstChild;
+    const componentEl = this.mediaWrapperRef.firstChild!;
 
-    if (e.target !== componentEl || !componentEl.contains(e.target)) {
+    if (e.target !== componentEl || !componentEl.contains(e.target as Node)) {
       return;
     }
 
-    if (disabled || locked || (keepSelection && isCropValid(crop))) {
+    if (disabled || locked || (keepSelection && isCropValid(crop as PartialCrop))) {
       return;
     }
 
@@ -319,8 +425,9 @@ class ReactCrop extends PureComponent {
 
     const clientPos = getClientPos(e);
 
-    // Focus for detecting keypress.
+    // @ts-ignore Focus for detecting keypress.
     if (this.componentRef.setActive) {
+      // @ts-ignore
       this.componentRef.setActive({ preventScroll: true }); // IE/Edge #289
     } else {
       this.componentRef.focus({ preventScroll: true }); // All other browsers
@@ -330,7 +437,7 @@ class ReactCrop extends PureComponent {
     const x = clientPos.x - mediaOffset.left;
     const y = clientPos.y - mediaOffset.top;
 
-    const nextCrop = {
+    const nextCrop: Crop = {
       unit: 'px',
       aspect: crop ? crop.aspect : undefined,
       x,
@@ -365,7 +472,7 @@ class ReactCrop extends PureComponent {
     this.setState({ cropIsActive: true, newCropIsBeingDrawn: true });
   };
 
-  onDocMouseTouchMove = e => {
+  onDocMouseTouchMove = (e: MouseTouchEvent) => {
     const { crop, disabled, onChange, onDragStart } = this.props;
 
     if (disabled) {
@@ -380,13 +487,13 @@ class ReactCrop extends PureComponent {
 
     if (!this.dragStarted) {
       this.dragStarted = true;
-      onDragStart(e);
+      onDragStart?.(e);
     }
 
     const { evData } = this;
     const clientPos = getClientPos(e);
 
-    if (evData.isResize && crop.aspect && evData.cropOffset) {
+    if (evData.isResize && crop!.aspect && evData.cropOffset) {
       clientPos.y = this.straightenYPath(clientPos.x);
     }
 
@@ -407,7 +514,7 @@ class ReactCrop extends PureComponent {
     }
   };
 
-  onComponentKeyDown = e => {
+  onComponentKeyDown = (e: React.KeyboardEvent) => {
     const { crop, disabled, onChange, onComplete } = this.props;
 
     if (disabled) {
@@ -417,7 +524,7 @@ class ReactCrop extends PureComponent {
     this.keysDown.add(e.key);
     let nudged = false;
 
-    if (!isCropValid(crop)) {
+    if (!isCropValid(crop as PartialCrop)) {
       return;
     }
 
@@ -460,15 +567,15 @@ class ReactCrop extends PureComponent {
       const percentCrop = convertToPercentCrop(nextCrop, width, height);
 
       onChange(pixelCrop, percentCrop);
-      onComplete(pixelCrop, percentCrop);
+      onComplete?.(pixelCrop, percentCrop);
     }
   };
 
-  onComponentKeyUp = e => {
+  onComponentKeyUp = (e: React.KeyboardEvent) => {
     this.keysDown.delete(e.key);
   };
 
-  onDocMouseTouchEnd = e => {
+  onDocMouseTouchEnd = (e: MouseTouchEvent) => {
     const { crop, disabled, onComplete, onDragEnd } = this.props;
 
     this.unbindDocMove();
@@ -483,8 +590,8 @@ class ReactCrop extends PureComponent {
 
       const { width, height } = this.mediaDimensions;
 
-      onDragEnd(e);
-      onComplete(convertToPixelCrop(crop, width, height), convertToPercentCrop(crop, width, height));
+      onDragEnd?.(e);
+      onComplete?.(convertToPixelCrop(crop!, width, height), convertToPercentCrop(crop!, width, height));
 
       this.setState({ cropIsActive: false, newCropIsBeingDrawn: false });
     }
@@ -507,22 +614,21 @@ class ReactCrop extends PureComponent {
     const { onComplete, onChange } = this.props;
     const { pixelCrop, percentCrop } = this.createNewCrop();
     onChange(pixelCrop, percentCrop);
-    onComplete(pixelCrop, percentCrop);
+    onComplete?.(pixelCrop, percentCrop);
   };
 
-  onImageLoad = event => {
+  onImageLoad = (event: React.SyntheticEvent) => {
     const { target: image } = event;
-
     const { onComplete, onChange, onImageLoaded } = this.props;
 
     // Return false from onImageLoaded if you set the crop with setState in there as otherwise
     // the subsequent onChange + onComplete will not have your updated crop.
-    const res = onImageLoaded(image);
+    const res = onImageLoaded?.(image as HTMLImageElement);
 
     if (res !== false) {
       const { pixelCrop, percentCrop } = this.createNewCrop();
       onChange(pixelCrop, percentCrop);
-      onComplete(pixelCrop, percentCrop);
+      onComplete?.(pixelCrop, percentCrop);
     }
   };
 
@@ -541,7 +647,7 @@ class ReactCrop extends PureComponent {
     return { pageYOffset, pageXOffset };
   }
 
-  getElementOffset(el) {
+  getElementOffset(el: HTMLElement) {
     const rect = el.getBoundingClientRect();
     const doc = this.getDocumentOffset();
     const win = this.getWindowOffset();
@@ -569,21 +675,21 @@ class ReactCrop extends PureComponent {
     const { width, height } = this.mediaDimensions;
 
     // New width.
-    let newWidth = evData.cropStartWidth + evData.xDiff;
+    let newWidth = evData.cropStartWidth + evData.xDiff!;
 
     if (evData.xCrossOver) {
       newWidth = Math.abs(newWidth);
     }
 
-    newWidth = clamp(newWidth, minWidth, maxWidth || width);
+    newWidth = clamp(newWidth, minWidth!, maxWidth || width);
 
     // New height.
     let newHeight;
 
-    if (crop.aspect) {
-      newHeight = newWidth / crop.aspect;
+    if (crop!.aspect) {
+      newHeight = newWidth / crop!.aspect;
     } else {
-      newHeight = evData.cropStartHeight + evData.yDiff;
+      newHeight = evData.cropStartHeight + evData.yDiff!;
     }
 
     if (evData.yCrossOver) {
@@ -591,10 +697,10 @@ class ReactCrop extends PureComponent {
       newHeight = Math.min(Math.abs(newHeight), evData.cropStartY);
     }
 
-    newHeight = clamp(newHeight, minHeight, maxHeight || height);
+    newHeight = clamp(newHeight, minHeight!, maxHeight || height);
 
-    if (crop.aspect) {
-      newWidth = clamp(newHeight * crop.aspect, 0, width);
+    if (crop!.aspect) {
+      newWidth = clamp(newHeight * crop!.aspect, 0, width);
     }
 
     return {
@@ -608,8 +714,8 @@ class ReactCrop extends PureComponent {
     const { evData } = this;
     const { width, height } = this.mediaDimensions;
 
-    nextCrop.x = clamp(evData.cropStartX + evData.xDiff, 0, width - nextCrop.width);
-    nextCrop.y = clamp(evData.cropStartY + evData.yDiff, 0, height - nextCrop.height);
+    nextCrop.x = clamp(evData.cropStartX + evData.xDiff!, 0, width - nextCrop.width);
+    nextCrop.y = clamp(evData.cropStartY + evData.yDiff!, 0, height - nextCrop.height);
 
     return nextCrop;
   }
@@ -622,12 +728,12 @@ class ReactCrop extends PureComponent {
     // On the inverse change the diff so it's the same and
     // the same algo applies.
     if (evData.xInversed) {
-      evData.xDiff -= evData.cropStartWidth * 2;
-      evData.xDiffPc -= evData.cropStartWidth * 2;
+      evData.xDiff! -= evData.cropStartWidth * 2;
+      evData.xDiffPc! -= evData.cropStartWidth * 2;
     }
     if (evData.yInversed) {
-      evData.yDiff -= evData.cropStartHeight * 2;
-      evData.yDiffPc -= evData.cropStartHeight * 2;
+      evData.yDiff! -= evData.cropStartHeight * 2;
+      evData.yDiffPc! -= evData.cropStartHeight * 2;
     }
 
     // New size.
@@ -655,7 +761,7 @@ class ReactCrop extends PureComponent {
 
     const { width, height } = this.mediaDimensions;
     const containedCrop = containCrop(
-      this.props.crop,
+      this.props.crop!,
       {
         unit: nextCrop.unit,
         x: newX,
@@ -688,7 +794,7 @@ class ReactCrop extends PureComponent {
     return nextCrop;
   }
 
-  straightenYPath(clientX) {
+  straightenYPath(clientX: number) {
     const { evData } = this;
     const { ord } = evData;
     const { cropOffset, cropStartWidth, cropStartHeight } = evData;
@@ -697,10 +803,10 @@ class ReactCrop extends PureComponent {
 
     if (ord === 'nw' || ord === 'se') {
       k = cropStartHeight / cropStartWidth;
-      d = cropOffset.top - cropOffset.left * k;
+      d = cropOffset!.top - cropOffset!.left * k;
     } else {
       k = -cropStartHeight / cropStartWidth;
-      d = cropOffset.top + (cropStartHeight - cropOffset.left * k);
+      d = cropOffset!.top + (cropStartHeight - cropOffset!.left * k);
     }
 
     return k * clientX + d;
@@ -735,7 +841,7 @@ class ReactCrop extends PureComponent {
             <div className="ReactCrop__drag-handle ord-w" data-ord="w" />
           </div>
         )}
-        {renderSelectionAddon && isCropValid(crop) && (
+        {renderSelectionAddon && isCropValid(crop as PartialCrop) && (
           <div className="ReactCrop__selection-addon" onMouseDown={e => e.stopPropagation()}>
             {renderSelectionAddon(this.state)}
           </div>
@@ -750,7 +856,7 @@ class ReactCrop extends PureComponent {
     );
   }
 
-  makeNewCrop(unit = 'px') {
+  makeNewCrop(unit = 'px'): Crop {
     const crop = { ...ReactCrop.defaultCrop, ...(this.props.crop || {}) };
     const { width, height } = this.mediaDimensions;
 
@@ -763,16 +869,16 @@ class ReactCrop extends PureComponent {
 
     if (
       !minWidth &&
-      ((!evData.xCrossOver && -Math.abs(evData.cropStartWidth) - evData.xDiff >= 0) ||
-        (evData.xCrossOver && -Math.abs(evData.cropStartWidth) - evData.xDiff <= 0))
+      ((!evData.xCrossOver && -Math.abs(evData.cropStartWidth) - evData.xDiff! >= 0) ||
+        (evData.xCrossOver && -Math.abs(evData.cropStartWidth) - evData.xDiff! <= 0))
     ) {
       evData.xCrossOver = !evData.xCrossOver;
     }
 
     if (
       !minHeight &&
-      ((!evData.yCrossOver && -Math.abs(evData.cropStartHeight) - evData.yDiff >= 0) ||
-        (evData.yCrossOver && -Math.abs(evData.cropStartHeight) - evData.yDiff <= 0))
+      ((!evData.yCrossOver && -Math.abs(evData.cropStartHeight) - evData.yDiff! >= 0) ||
+        (evData.yCrossOver && -Math.abs(evData.cropStartHeight) - evData.yDiff! <= 0))
     ) {
       evData.yCrossOver = !evData.yCrossOver;
     }
@@ -784,19 +890,19 @@ class ReactCrop extends PureComponent {
     evData.inversedYOrd = swapYOrd ? inverseOrd(evData.ord) : false;
   }
 
-  bindComponentRef = ref => {
+  bindComponentRef = (ref: HTMLDivElement) => {
     this.componentRef = ref;
   };
 
-  bindMediaWrapperRef = ref => {
+  bindMediaWrapperRef = (ref: HTMLDivElement) => {
     this.mediaWrapperRef = ref;
   };
 
-  bindImageRef = ref => {
+  bindImageRef = (ref: HTMLImageElement) => {
     this.imageRef = ref;
   };
 
-  bindCropSelectionRef = ref => {
+  bindCropSelectionRef = (ref: HTMLDivElement) => {
     this.cropSelectRef = ref;
   };
 
@@ -819,7 +925,7 @@ class ReactCrop extends PureComponent {
     } = this.props;
 
     const { cropIsActive, newCropIsBeingDrawn } = this.state;
-    const cropSelection = isCropValid(crop) && this.componentRef ? this.createCropSelection() : null;
+    const cropSelection = isCropValid(crop as PartialCrop) && this.componentRef ? this.createCropSelection() : null;
 
     const componentClasses = clsx('ReactCrop', className, {
       'ReactCrop--active': cropIsActive,
@@ -839,7 +945,7 @@ class ReactCrop extends PureComponent {
         style={style}
         onTouchStart={this.onComponentMouseTouchDown}
         onMouseDown={this.onComponentMouseTouchDown}
-        tabIndex="0"
+        tabIndex={0}
         onKeyDown={this.onComponentKeyDown}
         onKeyUp={this.onComponentKeyUp}
       >
@@ -880,6 +986,7 @@ ReactCrop.defaultCrop = {
   unit: 'px',
 };
 
+// @ts-ignore
 ReactCrop.propTypes = {
   className: PropTypes.string,
   children: PropTypes.oneOfType([PropTypes.arrayOf(PropTypes.node), PropTypes.node]),
@@ -915,6 +1022,7 @@ ReactCrop.propTypes = {
   ruleOfThirds: PropTypes.bool,
 };
 
+// @ts-ignore
 ReactCrop.defaultProps = {
   circularCrop: false,
   className: undefined,

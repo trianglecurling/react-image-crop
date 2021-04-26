@@ -5,7 +5,7 @@ const webpack = require('webpack');
 function getConfig(env) {
   const config = {
     mode: env,
-    entry: './lib/ReactCrop',
+    entry: './lib/ReactCrop.tsx',
     output: {
       path: path.resolve('dist'),
       library: 'ReactCrop',
@@ -25,7 +25,7 @@ function getConfig(env) {
     module: {
       rules: [
         {
-          test: /\.js$/,
+          test: /\.(j|t)sx?$/,
           exclude: /node_modules/,
           use: 'babel-loader',
         },
