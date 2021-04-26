@@ -13,7 +13,7 @@ const cropEditor = document.querySelector('#crop-editor');
 
 interface AppState {
   src: string | null;
-  crop: { aspect: number; unit?: string; width?: number };
+  crop: { aspect?: number; unit?: string; width?: number; height?: number };
   croppedImageUrl?: string;
 }
 
@@ -41,9 +41,9 @@ class App extends PureComponent<{}, AppState> {
   };
 
   onImageLoaded = (image: HTMLImageElement) => {
-    // this.imageRef = image;
-    // this.setState({ crop: { unit: 'px', width: 50, height: 50 } });
-    // return false;
+    this.imageRef = image;
+    this.setState({ crop: { unit: 'px', width: 50, height: 50 } });
+    return false;
   };
 
   onCropComplete = (crop, percentCrop) => {
@@ -93,7 +93,6 @@ class App extends PureComponent<{}, AppState> {
       crop.width,
       crop.height
     );
-
     return new Promise<string>(resolve => {
       canvas.toBlob(blob => {
         // @ts-ignore
