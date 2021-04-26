@@ -11,27 +11,36 @@ const mp4Url = 'http://techslides.com/demos/sample-videos/small.mp4';
  */
 const cropEditor = document.querySelector('#crop-editor');
 
-class App extends PureComponent {
-  state = {
+interface AppState {
+  src: string | null;
+  crop: { aspect: number; unit?: string; width?: number };
+  croppedImageUrl?: string;
+}
+
+class App extends PureComponent<{}, AppState> {
+  public state: AppState = {
     src: null,
     crop: {
       // x: 200,
       // y: 200,
-      aspect: 3 / 2,
+      aspect: 3 / 3,
     },
   };
+
+  private fileUrl!: string;
+  private imageRef!: HTMLImageElement;
 
   onSelectFile = e => {
     if (e.target.files && e.target.files.length > 0) {
       const reader = new FileReader();
       reader.addEventListener('load', () => {
-        this.setState({ src: reader.result });
+        this.setState({ src: reader.result as string });
       });
       reader.readAsDataURL(e.target.files[0]);
     }
   };
 
-  onImageLoaded = image => {
+  onImageLoaded = (image: HTMLImageElement) => {
     // this.imageRef = image;
     // this.setState({ crop: { unit: 'px', width: 50, height: 50 } });
     // return false;
@@ -85,8 +94,9 @@ class App extends PureComponent {
       crop.height
     );
 
-    return new Promise(resolve => {
+    return new Promise<string>(resolve => {
       canvas.toBlob(blob => {
+        // @ts-ignore
         blob.name = fileName; // eslint-disable-line no-param-reassign
         window.URL.revokeObjectURL(this.fileUrl);
         this.fileUrl = window.URL.createObjectURL(blob);
@@ -132,7 +142,7 @@ class App extends PureComponent {
             <ReactCrop
               // renderComponent={this.renderVideo()}
               src={this.state.src}
-              crop={this.state.crop}
+              crop={this.state.crop as any}
               ruleOfThirds
               // circularCrop
               onImageLoaded={this.onImageLoaded}

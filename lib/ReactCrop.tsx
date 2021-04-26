@@ -203,7 +203,7 @@ interface ReactCropProps {
   style?: React.CSSProperties;
   imageStyle?: React.CSSProperties;
   imageAlt?: string;
-  onImageLoaded?: (image: HTMLImageElement) => undefined | boolean;
+  onImageLoaded?: (image: HTMLImageElement) => undefined | boolean | void;
   onImageError?: (event: React.SyntheticEvent) => void;
   onDragStart?: (event: MouseTouchEvent) => void;
   onDragEnd?: (event: MouseTouchEvent) => void;

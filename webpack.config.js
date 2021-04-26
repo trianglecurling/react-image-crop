@@ -14,6 +14,9 @@ function getConfig(env) {
       globalObject: 'this',
     },
     target: 'web',
+    resolve: {
+      extensions: ['.ts', '.tsx', '.js', '.jsx', '.json', '.css'],
+    },
     externals: {
       react: {
         root: 'React',
